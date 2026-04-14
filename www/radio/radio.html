@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="de">
 <head>
@@ -12,6 +11,11 @@
     .hint { opacity: .8; font-size: 14px; margin-top: 10px; }
     audio { width: 100%; margin-top: 12px; }
     details { margin-top: 14px; }
+    .volrow { display: grid; grid-template-columns: 120px 1fr 70px; gap: 12px; align-items: center; margin-top: 10px; }
+    input[type="range"] { width: 100%; margin: 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .checkrow { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+    .checkrow input[type="checkbox"] { width: auto; margin: 0; transform: scale(1.2); }
   </style>
 </head>
 <body>
@@ -23,6 +27,17 @@
   <div class="row">
     <button id="play">Play</button>
     <button id="stop">Stop</button>
+  </div>
+
+  <div class="volrow">
+    <div>Lautstärke</div>
+    <input id="vol" type="range" min="0" max="100" step="1" value="80" />
+    <div class="mono" id="volLabel">80%</div>
+  </div>
+
+  <div class="checkrow">
+    <input id="autoplay" type="checkbox" />
+    <label for="autoplay">Autoplay beim Öffnen (letzter Sender)</label>
   </div>
 
   <audio id="audio" controls></audio>
@@ -55,7 +70,15 @@
   const newNameEl = document.getElementById('newName');
   const newUrlEl = document.getElementById('newUrl');
 
-  const LS_KEY = 'radios_override_v1';
+  const volEl = document.getElementById('vol');
+  const volLabelEl = document.getElementById('volLabel');
+
+  const autoplayEl = document.getElementById('autoplay');
+
+  const LS_KEY   = 'radios_override_v1';
+  const LAST_KEY = 'radio_last_station_v1';
+  const VOL_KEY  = 'radio_volume_v1';
+  const AP_KEY   = 'radio_autoplay_enabled_v1';
 
   let baseRadios = {};
   let radios = {};
@@ -83,7 +106,6 @@
   }
 
   function mergeRadios(baseObj, overrideObj) {
-    // Override gewinnt bei gleichem Sendernamen
     return { ...baseObj, ...overrideObj };
   }
 
@@ -99,14 +121,53 @@
     if (selectedName && radios[selectedName]) stationSel.value = selectedName;
   }
 
+  function getSelectedName() {
+    return stationSel.value;
+  }
+
+  function applyVolumeFromSlider() {
+    const v = Number(volEl.value);                 // 0..100
+    const norm = Math.max(0, Math.min(1, v / 100)); // 0..1
+    audio.volume = norm;
+    volLabelEl.textContent = `${v}%`;
+    localStorage.setItem(VOL_KEY, String(v));
+  }
+
+  function loadVolume() {
+    const saved = localStorage.getItem(VOL_KEY);
+    const v = saved !== null ? Number(saved) : 80;
+    const vv = Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 80;
+    volEl.value = String(vv);
+    applyVolumeFromSlider();
+  }
+
+  function loadAutoplaySetting() {
+    const saved = localStorage.getItem(AP_KEY);
+    // Default: aus
+    const enabled = saved === '1';
+    autoplayEl.checked = enabled;
+    return enabled;
+  }
+
+  function saveAutoplaySetting(enabled) {
+    localStorage.setItem(AP_KEY, enabled ? '1' : '0');
+  }
+
   function playSelected() {
-    const name = stationSel.value;
+    const name = getSelectedName();
     const url = radios[name];
+
     if (!url) {
       statusEl.textContent = 'Kein Stream für Auswahl gefunden.';
       return;
     }
+
+    // merken für "letzter Sender"
+    localStorage.setItem(LAST_KEY, name);
+
     audio.src = url;
+    applyVolumeFromSlider();
+
     audio.play()
       .then(() => statusEl.textContent = `Spiele: ${name}`)
       .catch(err => statusEl.textContent = `Play fehlgeschlagen: ${err}`);
@@ -145,35 +206,50 @@
     statusEl.textContent = 'Lokale Sender gelöscht (nur Basisliste aktiv).';
   }
 
+  // Events
   document.getElementById('play').addEventListener('click', playSelected);
   document.getElementById('stop').addEventListener('click', stop);
   document.getElementById('add').addEventListener('click', addStation);
   document.getElementById('reset').addEventListener('click', resetLocalStations);
 
-(async function init() {
-  try {
-    await loadBaseRadios();
-    const override = loadOverride();
-    radios = mergeRadios(baseRadios, override);
+  volEl.addEventListener('input', applyVolumeFromSlider);
 
-    // Letzten Sender (falls vorhanden) vorselektieren
-    const last = localStorage.getItem(LAST_KEY);
-    renderStations(last && radios[last] ? last : undefined);
+  stationSel.addEventListener('change', () => {
+    const name = getSelectedName();
+    if (name) localStorage.setItem(LAST_KEY, name);
+  });
 
-    statusEl.textContent = `Bereit. ${Object.keys(radios).length} Sender (inkl. lokale) geladen.`;
+  autoplayEl.addEventListener('change', () => {
+    saveAutoplaySetting(autoplayEl.checked);
+    statusEl.textContent = autoplayEl.checked
+      ? 'Autoplay ist aktiviert.'
+      : 'Autoplay ist deaktiviert.';
+  });
 
-    // Autoplay: letzten Sender automatisch starten (Browser kann das blocken)
-    if (last && radios[last]) {
-      stationSel.value = last;
-      // kleines Delay, damit UI sicher gerendert ist
-      setTimeout(() => {
-        playSelected();
-      }, 200);
+  // Init
+  (async function init() {
+    try {
+      loadVolume();
+      const autoplayEnabled = loadAutoplaySetting();
+
+      await loadBaseRadios();
+      const override = loadOverride();
+      radios = mergeRadios(baseRadios, override);
+
+      const last = localStorage.getItem(LAST_KEY);
+      renderStations(last && radios[last] ? last : undefined);
+
+      statusEl.textContent = `Bereit. ${Object.keys(radios).length} Sender (inkl. lokale) geladen.`;
+
+      // Autoplay nur wenn Checkbox an ist
+      if (autoplayEnabled && last && radios[last]) {
+        stationSel.value = last;
+        setTimeout(() => playSelected(), 200);
+      }
+    } catch (e) {
+      statusEl.textContent = 'Fehler: ' + e.message;
     }
-  } catch (e) {
-    statusEl.textContent = 'Fehler: ' + e.message;
-  }
-})();
+  })();
 </script>
 </body>
 </html>
