@@ -1,6 +1,6 @@
 {
   "Oldie Antenne": "https://s1-webradio.oldie-antenne.de/oldie-antenne/stream/aacp",
-  "MDR Aktuell": "https://mdr-edge-105c-dus-dtag-cdn.cast.addradio.de/mdr/aktuell/live/mp3/56/stream.mp3",
-  "MDR Klassik": "https://mdr-edge-105b-dus-dtag-cdn.cast.addradio.de/mdr/klassik/live/mp3/56/stream.mp3",
-  "Deutschlandfunk": "https://st01.dlf.de/dlf/01/128/mp3/stream.mp3",
+  "MDR Aktuell": "http://mdr-284310-0.cast.mdr.de/mdr/284310/0/mp3/high/stream.mp3",
+  "MDR Klassik": "http://mdr-284311-0.cast.mdr.de/mdr/284311/0/mp3/high/stream.mp3",
+  "Deutschlandfunk": "https://st01.dlf.de/dlf/01/128/mp3/stream.mp3"
 }
