@@ -1,1 +1,166 @@
 
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home Radio</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 16px; }
+    select, button, input { font-size: 18px; padding: 10px; margin: 6px 0; width: 100%; box-sizing: border-box; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .hint { opacity: .8; font-size: 14px; margin-top: 10px; }
+    audio { width: 100%; margin-top: 12px; }
+    details { margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h2>Radio</h2>
+
+  <label for="station">Sender</label>
+  <select id="station"></select>
+
+  <div class="row">
+    <button id="play">Play</button>
+    <button id="stop">Stop</button>
+  </div>
+
+  <audio id="audio" controls></audio>
+  <div class="hint" id="status">Lade Senderliste…</div>
+
+  <details>
+    <summary>Sender hinzufügen (wird lokal im Browser gespeichert)</summary>
+
+    <label for="newName">Name</label>
+    <input id="newName" placeholder="z.B. NDR 2" />
+
+    <label for="newUrl">Stream-URL</label>
+    <input id="newUrl" placeholder="https://... (mp3/aac/m3u8)" />
+
+    <div class="row">
+      <button id="add">Hinzufügen</button>
+      <button id="reset">Lokale Sender löschen</button>
+    </div>
+
+    <p class="hint">
+      Gespeicherte Sender gelten nur auf diesem Gerät/Browser.
+      Die Datei <code>/config/www/radio/radios.json</code> auf Home Assistant wird nicht verändert.
+    </p>
+  </details>
+
+<script>
+  const statusEl = document.getElementById('status');
+  const stationSel = document.getElementById('station');
+  const audio = document.getElementById('audio');
+  const newNameEl = document.getElementById('newName');
+  const newUrlEl = document.getElementById('newUrl');
+
+  const LS_KEY = 'radios_override_v1';
+
+  let baseRadios = {};
+  let radios = {};
+
+  async function loadBaseRadios() {
+    // /local/ maps to config/www/
+    const res = await fetch('/local/radio/radios.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('radios.json nicht erreichbar');
+    baseRadios = await res.json();
+  }
+
+  function loadOverride() {
+    const s = localStorage.getItem(LS_KEY);
+    if (!s) return {};
+    try {
+      const obj = JSON.parse(s);
+      return (obj && typeof obj === 'object') ? obj : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveOverride(overrideObj) {
+    localStorage.setItem(LS_KEY, JSON.stringify(overrideObj));
+  }
+
+  function mergeRadios(baseObj, overrideObj) {
+    // Override gewinnt bei gleichem Sendernamen
+    return { ...baseObj, ...overrideObj };
+  }
+
+  function renderStations(selectedName) {
+    const names = Object.keys(radios).sort((a,b) => a.localeCompare(b, 'de'));
+    stationSel.innerHTML = '';
+    for (const name of names) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      stationSel.appendChild(opt);
+    }
+    if (selectedName && radios[selectedName]) stationSel.value = selectedName;
+  }
+
+  function playSelected() {
+    const name = stationSel.value;
+    const url = radios[name];
+    if (!url) {
+      statusEl.textContent = 'Kein Stream für Auswahl gefunden.';
+      return;
+    }
+    audio.src = url;
+    audio.play()
+      .then(() => statusEl.textContent = `Spiele: ${name}`)
+      .catch(err => statusEl.textContent = `Play fehlgeschlagen: ${err}`);
+  }
+
+  function stop() {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    statusEl.textContent = 'Gestoppt.';
+  }
+
+  function addStation() {
+    const name = (newNameEl.value || '').trim();
+    const url = (newUrlEl.value || '').trim();
+
+    if (!name) { statusEl.textContent = 'Bitte Name eingeben.'; return; }
+    if (!url || !/^https?:\/\//i.test(url)) { statusEl.textContent = 'Bitte gültige URL (http/https) eingeben.'; return; }
+
+    const override = loadOverride();
+    override[name] = url;
+    saveOverride(override);
+
+    radios = mergeRadios(baseRadios, override);
+    renderStations(name);
+
+    newNameEl.value = '';
+    newUrlEl.value = '';
+    statusEl.textContent = `Hinzugefügt (lokal): ${name}`;
+  }
+
+  function resetLocalStations() {
+    localStorage.removeItem(LS_KEY);
+    radios = { ...baseRadios };
+    renderStations();
+    statusEl.textContent = 'Lokale Sender gelöscht (nur Basisliste aktiv).';
+  }
+
+  document.getElementById('play').addEventListener('click', playSelected);
+  document.getElementById('stop').addEventListener('click', stop);
+  document.getElementById('add').addEventListener('click', addStation);
+  document.getElementById('reset').addEventListener('click', resetLocalStations);
+
+  (async function init() {
+    try {
+      await loadBaseRadios();
+      const override = loadOverride();
+      radios = mergeRadios(baseRadios, override);
+      renderStations();
+      statusEl.textContent = `Bereit. ${Object.keys(radios).length} Sender (inkl. lokale) geladen.`;
+    } catch (e) {
+      statusEl.textContent = 'Fehler: ' + e.message;
+    }
+  })();
+</script>
+</body>
+</html>
