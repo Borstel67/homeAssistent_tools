@@ -180,6 +180,7 @@ async function resolveIfM3U(url) {
     .filter(l => l && !l.startsWith('#'));
 
   const firstUrl = lines.find(isHttpUrl);
+  statusEl.textContent = `M3U → ${firstUrl || 'keine URL gefunden'}`;
   if (!firstUrl) throw new Error('In der M3U keine Stream-URL gefunden');
 
   return firstUrl;
